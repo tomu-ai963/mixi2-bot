@@ -10,7 +10,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/mixigroup/mixi2-application-sample-go/handler"
+	apphandler "github.com/mixigroup/mixi2-application-sample-go/handler"
 	"github.com/mixigroup/mixi2-application-sdk-go/auth"
 	"github.com/mixigroup/mixi2-application-sdk-go/event/webhook"
 	application_apiv1 "github.com/mixigroup/mixi2-application-sdk-go/gen/go/social/mixi/application/service/application_api/v1"
@@ -25,8 +25,6 @@ var (
 	apiConn        *grpc.ClientConn
 )
 
-// setup initializes the webhook server. It is called once per container lifetime via sync.Once.
-// The result is stored in package-level variables so that Handler can reuse them across requests.
 func setup() {
 	clientID := os.Getenv("CLIENT_ID")
 	clientSecret := os.Getenv("CLIENT_SECRET")
@@ -34,7 +32,7 @@ func setup() {
 	apiAddress := os.Getenv("API_ADDRESS")
 	signaturePubKey := os.Getenv("SIGNATURE_PUBLIC_KEY")
 
-	log.Printf("setup: CLIENT_ID=%t, CLIENT_SECRET=%t, TOKEN_URL=%t, API_ADDRESS=%t, SIGNATURE_PUBLIC_KEY=%t",
+	log.Printf("setup start: CLIENT_ID=%t CLIENT_SECRET=%t TOKEN_URL=%t API_ADDRESS=%t SIGNATURE_PUBLIC_KEY=%t",
 		clientID != "", clientSecret != "", tokenURL != "", apiAddress != "", signaturePubKey != "")
 
 	if clientID == "" || clientSecret == "" || tokenURL == "" || apiAddress == "" || signaturePubKey == "" {
@@ -44,7 +42,7 @@ func setup() {
 
 	publicKeyBytes, err := base64.StdEncoding.DecodeString(signaturePubKey)
 	if err != nil {
-		initErr = fmt.Errorf("failed to decode public key: %w", err)
+		initErr = fmt.Errorf("failed to decode SIGNATURE_PUBLIC_KEY: %w", err)
 		return
 	}
 	publicKey := ed25519.PublicKey(publicKeyBytes)
@@ -66,21 +64,30 @@ func setup() {
 	apiConn = conn
 
 	apiClient := application_apiv1.NewApplicationServiceClient(apiConn)
-	eventHandler := handler.NewHandler(apiClient, authenticator)
+	eventHandler := apphandler.NewHandler(apiClient, authenticator)
 
 	server := webhook.NewServer("", publicKey, eventHandler, webhook.WithSyncEventHandling())
 	eventHandlerFn = server.EventHandlerFunc()
+
+	log.Printf("setup completed")
 }
 
-// Handler is the Vercel serverless function entry point.
-// setup is called once per container lifetime via sync.Once. If setup fails,
-// all subsequent requests return 200 (to suppress retries) until the container is restarted by Vercel.
+// Handler is the Vercel entrypoint.
 func Handler(w http.ResponseWriter, r *http.Request) {
+	// 動作確認用
+	if r.Method == http.MethodGet {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+		return
+	}
+
 	log.Printf("request: method=%s path=%s", r.Method, r.URL.Path)
+
 	once.Do(setup)
+
 	if initErr != nil {
 		log.Printf("initialization error: %v", initErr)
-		w.WriteHeader(http.StatusOK)
+		http.Error(w, "initialization failed", http.StatusInternalServerError)
 		return
 	}
 

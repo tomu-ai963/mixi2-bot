@@ -56,41 +56,56 @@ func (h *Handler) Handle(ctx context.Context, ev *modelv1.Event) error {
 // handleChatMessage handles chat message received events.
 func (h *Handler) handleChatMessage(ctx context.Context, ev *modelv1.ChatMessageReceivedEvent) error {
 	if ev == nil {
+		h.logger.Info("chat event is nil")
 		return nil
 	}
 
 	msg := ev.GetMessage()
 	if msg == nil {
+		h.logger.Info("chat message is nil")
 		return nil
 	}
 
 	text := strings.TrimSpace(msg.GetText())
+	h.logger.Info("chat message received",
+		slog.String("room_id", msg.GetRoomId()),
+		slog.String("text", text),
+	)
+
 	if text == "" {
+		h.logger.Info("chat text is empty")
 		return nil
 	}
 
 	reply := h.buildReply(text)
+	h.logger.Info("reply built",
+		slog.String("reply", reply),
+	)
+
 	if strings.TrimSpace(reply) == "" {
+		h.logger.Info("reply is empty")
 		return nil
 	}
 
 	authCtx, err := h.authenticator.AuthorizedContext(ctx)
 	if err != nil {
+		h.logger.Error("authorized context failed", slog.String("error", err.Error()))
 		return err
 	}
+	h.logger.Info("authorized context ok")
 
 	_, err = h.apiClient.SendChatMessage(authCtx, &application_apiv1.SendChatMessageRequest{
 		RoomId: msg.GetRoomId(),
 		Text:   &reply,
 	})
 	if err != nil {
+		h.logger.Error("send chat message failed", slog.String("error", err.Error()))
 		return err
 	}
 
-	h.logger.Info("sent chat reply",
+	h.logger.Info("send chat message ok",
 		slog.String("room_id", msg.GetRoomId()),
-		slog.String("received_text", text),
-		slog.String("reply_text", reply),
+		slog.String("reply", reply),
 	)
 
 	return nil
